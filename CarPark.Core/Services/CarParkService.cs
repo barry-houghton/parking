@@ -1,74 +1,73 @@
 ﻿using CarPark.Core.Exceptions;
+using CarPark.Core.Persistence;
+using Microsoft.EntityFrameworkCore;
 using ParCark.Api.Models;
 
 namespace CarPark.Core.Services
 {
     public class CarParkService : ICarParkService
     {
-        private readonly OccupiedParkingSpace?[] _parkingSpaces;
+        private readonly CarParkDbContext _carParkDbContext;
         private readonly IDateTimeHelper _dateTimeHelper;
 
-        public CarParkService(IDateTimeHelper dateTimeHelper)
+        public CarParkService(CarParkDbContext carParkDbContext, IDateTimeHelper dateTimeHelper)
         {
+            _carParkDbContext = carParkDbContext;
             _dateTimeHelper = dateTimeHelper;
-            _parkingSpaces = new OccupiedParkingSpace?[Configuration.TOTAL_PARKING_SPACES];
         }
 
-        public (int AvailableSpaces, int OccupiedSpaces) GetAvailableSpaces()
+        public async Task<(int AvailableSpaces, int OccupiedSpaces)> GetAvailableSpaces(CancellationToken ct = default)
         {
+            int occupiedSpaces = await _carParkDbContext.OccupiedParkingSpaces.CountAsync(ct);
             return (
-                AvailableSpaces: Configuration.TOTAL_PARKING_SPACES - _parkingSpaces.Count(s => s != null),
-                OccupiedSpaces: _parkingSpaces.Count(s => s != null)
+                AvailableSpaces: Configuration.TOTAL_PARKING_SPACES - occupiedSpaces,
+                OccupiedSpaces: occupiedSpaces
             );
         }
 
-        public (string VehicleReg, int SpaceNumber, DateTime CheckInTime) CheckIn(string vehicleReg, int vehicleTypeValue)
+        public async Task<(string VehicleReg, int SpaceNumber, DateTime CheckInTime)> CheckIn(string vehicleReg, int vehicleTypeValue, CancellationToken ct)
         {
             if (!VehicleType.TryFromValue(vehicleTypeValue, out var vehicleType))
             {
                 throw new InvalidVehicleTypeException($"Invalid vehicle type: {vehicleTypeValue}");
-
             }
 
-            var vehicle = new Vehicle(vehicleReg, vehicleType);
-
             // check if vehicle is already checked in
-            var existingSpaceNumber = Array.FindIndex(_parkingSpaces, x => x?.Vehicle.VehicleReg == vehicle.VehicleReg);
-            if (existingSpaceNumber != -1)
+            var existingVehicle = await _carParkDbContext.OccupiedParkingSpaces.FirstOrDefaultAsync(x => x.VehicleReg == vehicleReg, ct);
+            if (existingVehicle != null)
             {
-                throw new VehicleAlreadyParkedException($"Vehicle with registration {vehicle.VehicleReg} is already parked.");
+                throw new VehicleAlreadyParkedException($"Vehicle with registration {vehicleReg} is already parked.");
             }
 
             // find next available parking space
-            var spaceNumber = FindNextAvailableParkingSpace();
+            var spaceNumber = await FindNextAvailableParkingSpace(ct);
 
             // add vehicle to parking space
-            _parkingSpaces[spaceNumber - 1] = new OccupiedParkingSpace(vehicle, _dateTimeHelper.GetUtcNow());
+            _carParkDbContext.OccupiedParkingSpaces.Add(new OccupiedParkingSpace(spaceNumber, vehicleReg, vehicleType, _dateTimeHelper.GetUtcNow()));
+            await _carParkDbContext.SaveChangesAsync(ct);
 
             // return the vehicle reg, parking space number and check-in time
-            return (vehicle.VehicleReg, spaceNumber, _dateTimeHelper.GetUtcNow());
+            return (vehicleReg, spaceNumber, _dateTimeHelper.GetUtcNow());
         }
 
-        public (string VehicleReg, decimal parkingCharge, DateTime CheckInTime, DateTime CheckOutTime) CheckOut(string vehicleReg)
+        public async Task<(string VehicleReg, decimal parkingCharge, DateTime CheckInTime, DateTime CheckOutTime)> CheckOut(string vehicleReg, CancellationToken ct)
         {
             // find the parking space occupied by the vehicle
-            var spaceNumber = Array.FindIndex(_parkingSpaces, x => x?.Vehicle.VehicleReg == vehicleReg);
-            if (spaceNumber == -1)
-            {
-                throw new VehicleNotCheckedInException($"Vehicle with registration {vehicleReg} is not checked in.");
-            }
+            var existingVehicle = 
+                await _carParkDbContext.OccupiedParkingSpaces.FirstOrDefaultAsync(x => x.VehicleReg == vehicleReg, ct)
+                ?? throw new VehicleNotCheckedInException($"Vehicle with registration {vehicleReg} is not checked in.");
 
             var now = _dateTimeHelper.GetUtcNow();
-            var vehicle = _parkingSpaces[spaceNumber]!.Vehicle;
 
             // calculate the charge based on the time spent in the parking space
-            var parkingCharge = CalculateParkingCharge(_parkingSpaces[spaceNumber]!.CheckInTime, now, vehicle.Type);
+            var parkingCharge = CalculateParkingCharge(existingVehicle.CheckInTime, now, existingVehicle.VehicleType);
 
             // return the vehicle registration, parking charge, and check-in / out times
-            var data = (vehicle.VehicleReg, parkingCharge, _parkingSpaces[spaceNumber]!.CheckInTime, now);
+            var data = (vehicleReg, parkingCharge, existingVehicle.CheckInTime, now);
 
             // de-allocate the parking space
-            _parkingSpaces[spaceNumber] = null;
+            _carParkDbContext.Remove(existingVehicle);
+            await _carParkDbContext.SaveChangesAsync(ct);
 
             return data;
         }
@@ -87,15 +86,20 @@ namespace CarPark.Core.Services
             return parkingCharge + additionalCharge;
         }
 
-        private int FindNextAvailableParkingSpace()
+        private async Task<int> FindNextAvailableParkingSpace(CancellationToken ct)
         {
-            var index = Array.FindIndex(_parkingSpaces, x => x is null);
+            if (await _carParkDbContext.OccupiedParkingSpaces.CountAsync(ct) == Configuration.TOTAL_PARKING_SPACES)
+            {
+                throw new NoAvailableParkingSpacesException("No available parking spaces.");
+            }
 
-            int? spaceNumber = index == -1
-                ? null
-                : index + 1;
+            var occupiedSpaces = await _carParkDbContext.OccupiedParkingSpaces.Select(x => x.Id).ToListAsync(ct);
 
-            return spaceNumber ?? throw new NoAvailableParkingSpacesException("No available parking spaces.");
+            var nextFreeSpace = Enumerable.Range(1, Configuration.TOTAL_PARKING_SPACES)
+                .Except(occupiedSpaces)
+                .FirstOrDefault();
+
+            return nextFreeSpace;
         }
     }
 }

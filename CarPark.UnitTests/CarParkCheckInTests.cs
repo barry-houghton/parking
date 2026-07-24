@@ -1,24 +1,38 @@
 ﻿using CarPark.Core;
 using CarPark.Core.Exceptions;
+using CarPark.Core.Persistence;
 using CarPark.Core.Services;
 using CarPark.UnitTests.Mocks;
+using Microsoft.EntityFrameworkCore;
 using ParCark.Api.Models;
 using Shouldly;
+using System.Runtime.CompilerServices;
 
 namespace CarPark.UnitTests
 {
     public class CarParkCheckInTests
     {
+        private readonly CarParkDbContext _dbContext;
+
+        public CarParkCheckInTests()
+        {
+            var options = new DbContextOptionsBuilder<CarParkDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+
+            _dbContext = new CarParkDbContext(options);
+        }
+
         [Fact]
-        public void ShouldIncreaseOccupiedSpacesWhenCarChecksIn()
+        public async Task ShouldIncreaseOccupiedSpacesWhenCarChecksIn()
         {
             // Arrange
-            var carPark = new CarParkService(new MockDateTimeHelper().Object);
-            var initialOccupiedSpaces = carPark.GetAvailableSpaces().OccupiedSpaces;
+            var carPark = new CarParkService(_dbContext, new MockDateTimeHelper().Object);
+            var initialOccupiedSpaces = (await carPark.GetAvailableSpaces(TestContext.Current.CancellationToken)).OccupiedSpaces;
 
             // Act
-            carPark.CheckIn("ABC123", VehicleType.Small);
-            var (AvailableSpaces, OccupiedSpaces) = carPark.GetAvailableSpaces();
+            await carPark.CheckIn("ABC123", VehicleType.Small, TestContext.Current.CancellationToken);
+            var (AvailableSpaces, OccupiedSpaces) = await carPark.GetAvailableSpaces(TestContext.Current.CancellationToken);
 
             // Assert
             OccupiedSpaces.ShouldBe(initialOccupiedSpaces + 1);
@@ -26,32 +40,32 @@ namespace CarPark.UnitTests
         }
 
         [Fact]
-        public void ShouldThrowExceptionWhenCarParkIsFull()
+        public async Task ShouldThrowExceptionWhenCarParkIsFull()
         {
             // Arrange
-            var carPark = new CarParkService(new MockDateTimeHelper().Object);
+            var carPark = new CarParkService(_dbContext, new MockDateTimeHelper().Object);
             foreach (var i in Enumerable.Range(1, Configuration.TOTAL_PARKING_SPACES))
             {
-                carPark.CheckIn($"ABC{i:000}", VehicleType.Small);
+                await carPark.CheckIn($"ABC{i:000}", VehicleType.Small, TestContext.Current.CancellationToken);
             }
 
             // Act
-            var exception = Should.Throw<NoAvailableParkingSpacesException>(() => carPark.CheckIn("XYZ999", VehicleType.Small));
+            var exception = Should.Throw<NoAvailableParkingSpacesException>(() => carPark.CheckIn("XYZ999", VehicleType.Small, TestContext.Current.CancellationToken));
             
             // Assert
             exception.Message.ShouldBe("No available parking spaces.");
         }
 
         [Fact]
-        public void ShouldThrowExceptionWhenVehicleIsAlreadyParked()
+        public async Task ShouldThrowExceptionWhenVehicleIsAlreadyParked()
         {
             // Arrange
-            var carPark = new CarParkService(new MockDateTimeHelper().Object);
+            var carPark = new CarParkService(_dbContext, new MockDateTimeHelper().Object);
             var vehicle = new Vehicle("ABC123", VehicleType.Small);
-            carPark.CheckIn(vehicle.VehicleReg, vehicle.Type);
+            await carPark.CheckIn(vehicle.VehicleReg, vehicle.Type, TestContext.Current.CancellationToken);
 
             // Act
-            var exception = Should.Throw<VehicleAlreadyParkedException>(() => carPark.CheckIn(vehicle.VehicleReg, vehicle.Type));
+            var exception = Should.Throw<VehicleAlreadyParkedException>(() => carPark.CheckIn(vehicle.VehicleReg, vehicle.Type, TestContext.Current.CancellationToken));
 
             // Assert
             exception.Message.ShouldBe($"Vehicle with registration {vehicle.VehicleReg} is already parked.");
@@ -60,52 +74,52 @@ namespace CarPark.UnitTests
         [Theory]
         [InlineData("ABC123", 2)]
         [InlineData("XYZ789", 7)]
-        public void ShouldReturnCorrectCheckInDetails(string vehicleReg, int numberOfVehiclesAlreadyParked)
+        public async Task ShouldReturnCorrectCheckInDetails(string vehicleReg, int numberOfVehiclesAlreadyParked)
         {
             // Arrange
             var mockDateTimeHelper = new MockDateTimeHelper();
-            var carPark = new CarParkService(mockDateTimeHelper.Object);
+            var carPark = new CarParkService(_dbContext, mockDateTimeHelper.Object);
             var vehicle = new Vehicle(vehicleReg, VehicleType.Large);
 
             for (int i = 1; i <= numberOfVehiclesAlreadyParked; i++)
             {
-                carPark.CheckIn($"ABC{i:000}", VehicleType.Small);
+                await carPark.CheckIn($"ABC{i:000}", VehicleType.Small, TestContext.Current.CancellationToken);
             }
 
             // Act
-            var (VehicleReg, SpaceNumber, CheckInTime) = carPark.CheckIn(vehicle.VehicleReg, vehicle.Type);
+            var (VehicleReg, SpaceNumber, CheckInTime) = await carPark.CheckIn(vehicle.VehicleReg, vehicle.Type, TestContext.Current.CancellationToken);
             
             // Assert
             VehicleReg.ShouldBe(vehicle.VehicleReg);
             SpaceNumber.ShouldBe(numberOfVehiclesAlreadyParked + 1);
-            CheckInTime.ShouldBeLessThanOrEqualTo(mockDateTimeHelper.Object.GetUtcNow());
+            CheckInTime.ShouldBe(mockDateTimeHelper.Object.GetUtcNow(), TimeSpan.FromSeconds(1));
         }
 
         [Theory]
         [InlineData("ABC123", 5, 3)]
         [InlineData("XYZ789", 7, 5)]
-        public void ShouldAllocateNextAvailableParkingSpace(string vehicleReg, int numberOfVehiclesAlreadyParked, int checkOutVehicleFromSpace)
+        public async Task ShouldAllocateNextAvailableParkingSpace(string vehicleReg, int numberOfVehiclesAlreadyParked, int checkOutVehicleFromSpace)
         {
             // Arrange
             var mockDateTimeHelper = new MockDateTimeHelper();
-            var carPark = new CarParkService(mockDateTimeHelper.Object);
+            var carPark = new CarParkService(_dbContext, mockDateTimeHelper.Object);
             var vehicle = new Vehicle(vehicleReg, VehicleType.Large);
 
             for (int i = 1; i <= numberOfVehiclesAlreadyParked; i++)
             {
-                carPark.CheckIn($"ABC{i:000}", VehicleType.Small);
+                await carPark.CheckIn($"ABC{i:000}", VehicleType.Small, TestContext.Current.CancellationToken);
             }
 
             // Check out a vehicle from a specific space
-            carPark.CheckOut($"ABC{checkOutVehicleFromSpace:000}");
+            await carPark.CheckOut($"ABC{checkOutVehicleFromSpace:000}", TestContext.Current.CancellationToken);
 
             // Act
-            var (VehicleReg, SpaceNumber, CheckInTime) = carPark.CheckIn(vehicle.VehicleReg, vehicle.Type);
+            var (VehicleReg, SpaceNumber, CheckInTime) = await carPark.CheckIn(vehicle.VehicleReg, vehicle.Type, TestContext.Current.CancellationToken);
 
             // Assert
             VehicleReg.ShouldBe(vehicle.VehicleReg);
             SpaceNumber.ShouldBe(checkOutVehicleFromSpace);
-            CheckInTime.ShouldBeLessThanOrEqualTo(mockDateTimeHelper.Object.GetUtcNow());
+            CheckInTime.ShouldBe(mockDateTimeHelper.Object.GetUtcNow(), TimeSpan.FromSeconds(1));
         }
     }
 }
