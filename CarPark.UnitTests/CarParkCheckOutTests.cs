@@ -1,6 +1,7 @@
 ﻿using CarPark.Core;
 using CarPark.Core.Exceptions;
 using CarPark.Core.Services;
+using CarPark.UnitTests.Mocks;
 using ParCark.Api.Models;
 using Shouldly;
 
@@ -12,9 +13,9 @@ namespace CarPark.UnitTests
         public void ShouldDecreaseOccupiedSpacesWhenCarChecksOut()
         {
             // Arrange
-            var carPark = new CarParkService();
+            var carPark = new CarParkService(new MockDateTimeHelper().Object);
             var vehicle = new Vehicle("ABC123", VehicleType.Small);
-            carPark.CheckIn(vehicle);
+            carPark.CheckIn(vehicle.VehicleReg, vehicle.Type);
             var initialOccupiedSpaces = carPark.GetAvailableSpaces().OccupiedSpaces;
             
             // Act
@@ -30,7 +31,7 @@ namespace CarPark.UnitTests
         public void ShouldThrowExceptionWhenVehicleIsNotCheckedIn()
         {
             // Arrange
-            var carPark = new CarParkService();
+            var carPark = new CarParkService(new MockDateTimeHelper().Object);
             var vehicleReg = "XYZ999";
          
             // Act
@@ -40,20 +41,26 @@ namespace CarPark.UnitTests
             exception.Message.ShouldBe($"Vehicle with registration {vehicleReg} is not checked in.");
         }
 
-        [Fact]
-        public void ShouldCalculateCorrectParkingChargeForSmallVehicle()
+        [Theory]
+        [InlineData(1, 13, 3.3)]
+        [InlineData(2, 45, 18.0)]
+        [InlineData(3, 87, 51.8)]
+        public void ShouldCalculateCorrectParkingChargeForVehicleType(int vehicleType, int minutesParked, decimal expectedCharge)
         {
             // Arrange
-            var carPark = new CarParkService();
-            var vehicle = new Vehicle("ABC123", VehicleType.Small);
-            carPark.CheckIn(vehicle);
+            var mockDateTimeHelper = new MockDateTimeHelper();
+            var carPark = new CarParkService(mockDateTimeHelper.Object);
+            var vehicle = new Vehicle("ABC123", VehicleType.FromValue(vehicleType));
+            carPark.CheckIn(vehicle.VehicleReg, vehicle.Type);
+
+            mockDateTimeHelper.AdvanceTimeBy(TimeSpan.FromMinutes(minutesParked)); // Simulate the specified number of minutes of parking
 
             // Act
             var (VehicleReg, ParkingCharge, CheckInTime, CheckOutTime) = carPark.CheckOut(vehicle.VehicleReg);
 
             // Assert
             VehicleReg.ShouldBe(vehicle.VehicleReg);
-            ParkingCharge.ShouldBeGreaterThan(0); // Assuming the charge is greater than 0 for a small vehicle
+            ParkingCharge.ShouldBe(expectedCharge);
             CheckInTime.ShouldBeLessThan(CheckOutTime);
         }
     }

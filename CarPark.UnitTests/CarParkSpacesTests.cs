@@ -1,5 +1,6 @@
 ﻿using CarPark.Core;
 using CarPark.Core.Services;
+using CarPark.UnitTests.Mocks;
 using ParCark.Api.Models;
 using Shouldly;
 
@@ -11,7 +12,7 @@ namespace CarPark.UnitTests
         public void ShouldReturnMaximumAvailableSpacesWhenCarParkIsEmpty()
         {
             // Arrange
-            var carPark = new CarParkService();
+            var carPark = new CarParkService(new MockDateTimeHelper().Object);
 
             // Act
             var (AvailableSpaces, OccupiedSpaces) = carPark.GetAvailableSpaces();
@@ -25,11 +26,11 @@ namespace CarPark.UnitTests
         public void ShouldReturnZeroAvailableSpacesWhenCarParkIsFull()
         {
             // Arrange
-            var carPark = new CarParkService();
+            var carPark = new CarParkService(new MockDateTimeHelper().Object);
 
             foreach (var i in Enumerable.Range(1, Configuration.TOTAL_PARKING_SPACES))
             {
-                carPark.CheckIn(new Vehicle($"ABC{i:000}", VehicleType.Small));
+                carPark.CheckIn($"ABC{i:000}", VehicleType.Small);
             }
 
             // Act
@@ -47,10 +48,10 @@ namespace CarPark.UnitTests
         public void ShouldReturnCorrectAvailableSpacesWhenCarParkIsPartiallyOccupied(int occupiedSpaces, int availableSpaces)
         {
             // Arrange
-            var carPark = new CarParkService();
+            var carPark = new CarParkService(new MockDateTimeHelper().Object);
             foreach (int i in Enumerable.Range(1, occupiedSpaces))
             {
-                carPark.CheckIn(new Vehicle($"ABC{i:000}", VehicleType.Small));
+                carPark.CheckIn($"ABC{i:000}", VehicleType.Small);
             }
 
             // Act

@@ -1,7 +1,6 @@
 using CarPark.Api.Models;
 using CarPark.Core.Exceptions;
 using CarPark.Core.Services;
-using Microsoft.AspNetCore.Mvc;
 using ParCark.Api.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,6 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.AddSingleton<IDateTimeHelper, DateTimeHelper>();
 builder.Services.AddSingleton<ICarParkService, CarParkService>();
 
 var app = builder.Build();
@@ -35,8 +35,7 @@ carParkApi.MapPost("/", async (CheckInRequest request, ICarParkService carParkSe
 {
     try
     {
-        var vehicle = new Vehicle(request.VehicleReg, VehicleType.FromValue(request.VehicleType));
-        var result = carParkService.CheckIn(vehicle);
+        var result = carParkService.CheckIn(request.VehicleReg, request.VehicleType);
         return Results.Ok(new CheckInResponse(result.VehicleReg, result.SpaceNumber, result.CheckInTime));
     }
     catch (Exception ex) when (ex is NoAvailableParkingSpacesException || ex is VehicleAlreadyParkedException)

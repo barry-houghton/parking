@@ -6,9 +6,11 @@ namespace CarPark.Core.Services
     public class CarParkService : ICarParkService
     {
         private readonly OccupiedParkingSpace?[] _parkingSpaces;
-        
-        public CarParkService()
+        private readonly IDateTimeHelper _dateTimeHelper;
+
+        public CarParkService(IDateTimeHelper dateTimeHelper)
         {
+            _dateTimeHelper = dateTimeHelper;
             _parkingSpaces = new OccupiedParkingSpace?[Configuration.TOTAL_PARKING_SPACES];
         }
 
@@ -20,8 +22,16 @@ namespace CarPark.Core.Services
             );
         }
 
-        public (string VehicleReg, int SpaceNumber, DateTime CheckInTime) CheckIn(Vehicle vehicle)
+        public (string VehicleReg, int SpaceNumber, DateTime CheckInTime) CheckIn(string vehicleReg, int vehicleTypeValue)
         {
+            if (!VehicleType.TryFromValue(vehicleTypeValue, out var vehicleType))
+            {
+                throw new InvalidVehicleTypeException($"Invalid vehicle type: {vehicleTypeValue}");
+
+            }
+
+            var vehicle = new Vehicle(vehicleReg, vehicleType);
+
             // check if vehicle is already checked in
             var existingSpaceNumber = Array.FindIndex(_parkingSpaces, x => x?.Vehicle.VehicleReg == vehicle.VehicleReg);
             if (existingSpaceNumber != -1)
@@ -33,10 +43,10 @@ namespace CarPark.Core.Services
             var spaceNumber = FindNextAvailableParkingSpace();
 
             // add vehicle to parking space
-            _parkingSpaces[spaceNumber - 1] = new OccupiedParkingSpace(vehicle, DateTime.UtcNow);
+            _parkingSpaces[spaceNumber - 1] = new OccupiedParkingSpace(vehicle, _dateTimeHelper.GetUtcNow());
 
             // return the vehicle reg, parking space number and check-in time
-            return (vehicle.VehicleReg, spaceNumber, DateTime.UtcNow);
+            return (vehicle.VehicleReg, spaceNumber, _dateTimeHelper.GetUtcNow());
         }
 
         public (string VehicleReg, decimal parkingCharge, DateTime CheckInTime, DateTime CheckOutTime) CheckOut(string vehicleReg)
@@ -48,8 +58,7 @@ namespace CarPark.Core.Services
                 throw new VehicleNotCheckedInException($"Vehicle with registration {vehicleReg} is not checked in.");
             }
 
-            // TODO: need to refactor this out to a separate service so it can be injected and tested separately
-            var now = DateTime.UtcNow.AddMinutes(7);
+            var now = _dateTimeHelper.GetUtcNow();
             var vehicle = _parkingSpaces[spaceNumber]!.Vehicle;
 
             // calculate the charge based on the time spent in the parking space
