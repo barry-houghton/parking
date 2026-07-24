@@ -48,9 +48,6 @@ namespace CarPark.UnitTests
             var vehicle = new Vehicle("ABC123", VehicleType.Small);
             carPark.CheckIn(vehicle);
 
-            // Simulate some time passing (e.g., 2 hours)
-            System.Threading.Thread.Sleep(2000); // Sleep for 2 seconds for demonstration purposes
-
             // Act
             var (VehicleReg, ParkingCharge, CheckInTime, CheckOutTime) = carPark.CheckOut(vehicle.VehicleReg);
 

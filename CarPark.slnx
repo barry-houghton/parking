@@ -5,6 +5,7 @@
     <File Path="TDS - .NET README.md" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="CarPark.Api/CarPark.Api.csproj" Id="5609d3c1-9390-4236-b7ec-2977e88e1e37" />
     <Project Path="CarPark.Core/CarPark.Core.csproj" Id="fa057f6e-a203-4140-a062-aaf07a7b6a46" />
   </Folder>
   <Folder Name="/tests/">

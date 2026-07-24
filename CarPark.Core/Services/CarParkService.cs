@@ -3,9 +3,14 @@ using ParCark.Api.Models;
 
 namespace CarPark.Core.Services
 {
-    public class CarParkService
+    public class CarParkService : ICarParkService
     {
-        private readonly OccupiedParkingSpace?[] _parkingSpaces = new OccupiedParkingSpace?[Configuration.TOTAL_PARKING_SPACES];
+        private readonly OccupiedParkingSpace?[] _parkingSpaces;
+        
+        public CarParkService()
+        {
+            _parkingSpaces = new OccupiedParkingSpace?[Configuration.TOTAL_PARKING_SPACES];
+        }
 
         public (int AvailableSpaces, int OccupiedSpaces) GetAvailableSpaces()
         {
@@ -34,7 +39,7 @@ namespace CarPark.Core.Services
             return (vehicle.VehicleReg, spaceNumber, DateTime.UtcNow);
         }
 
-        public (string VehicleReg, decimal parkingCharge, DateTime CheckInTime, DateTime now) CheckOut(string vehicleReg)
+        public (string VehicleReg, decimal parkingCharge, DateTime CheckInTime, DateTime CheckOutTime) CheckOut(string vehicleReg)
         {
             // find the parking space occupied by the vehicle
             var spaceNumber = Array.FindIndex(_parkingSpaces, x => x?.Vehicle.VehicleReg == vehicleReg);
@@ -44,7 +49,7 @@ namespace CarPark.Core.Services
             }
 
             // TODO: need to refactor this out to a separate service so it can be injected and tested separately
-            var now = DateTime.UtcNow;
+            var now = DateTime.UtcNow.AddMinutes(7);
             var vehicle = _parkingSpaces[spaceNumber]!.Vehicle;
 
             // calculate the charge based on the time spent in the parking space
@@ -62,13 +67,13 @@ namespace CarPark.Core.Services
         private static decimal CalculateParkingCharge(DateTime checkInTime, DateTime now, VehicleType type)
         {
             // calculate the length of time spent in the parking space in minutes
-            var timeSpent = (now - checkInTime.AddMinutes(-100)).TotalMinutes;
+            var timeSpent = (int)((now - checkInTime).TotalMinutes);
 
             // calculate parking charge based on vehicle type and time spent in the parking space
             var parkingCharge = type.ChargePerMinute * (decimal)timeSpent;
 
-            // add additional charges
-            var additionalCharge = (decimal)timeSpent / 5;
+            // add additional charges - add £1 charge for every 5 minutes
+            var additionalCharge = (int)(timeSpent / 5);
 
             return parkingCharge + additionalCharge;
         }

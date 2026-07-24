@@ -1,0 +1,24 @@
+@CarPark.Api_HostAddress = https://localhost:7043
+
+GET {{CarPark.Api_HostAddress}}/parking
+
+###
+
+POST {{CarPark.Api_HostAddress}}/parking
+Content-Type: application/json
+
+{
+  "VehicleReg": "ABC 123",
+  "VehicleType": 2
+}
+
+###
+
+POST {{CarPark.Api_HostAddress}}/parking/exit
+Content-Type: application/json
+
+{
+  "VehicleReg": "XYZ 789"
+}
+
+###
